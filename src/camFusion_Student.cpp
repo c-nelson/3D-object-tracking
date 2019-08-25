@@ -137,7 +137,33 @@ void show3DObjects(std::vector<BoundingBox> &boundingBoxes, cv::Size worldSize, 
 // associate a given bounding box with the keypoints it contains
 void clusterKptMatchesWithROI(BoundingBox &boundingBox, std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPoint> &kptsCurr, std::vector<cv::DMatch> &kptMatches)
 {
-    // ...
+    std::vector<cv::KeyPoint> tempKpt;
+    for(const auto &kpt : kptsCurr){
+      if(boundingBox.roi.contains(kpt.pt)) tempKpt.push_back(kpt);
+    }
+    boundingBox.keypoints = tempKpt;
+    std::pair<double, double> match_range(0.8, 1.2);
+    double avg_dist = 0;
+    double total_dist = 0;
+    std::vector<cv::DMatch> tempMatch;
+    for (const auto &match : kptMatches) {
+      const auto &currKeyPoint = kptsCurr[match.trainIdx].pt;
+      if (boundingBox.roi.contains(currKeyPoint)) {
+        tempMatch.push_back(match);
+        total_dist += match.distance;
+      }
+    }
+    avg_dist = total_dist / tempMatch.size();
+    auto it = tempMatch.begin();
+    while (it != tempMatch.end()){
+      if(it->distance < (avg_dist * match_range.first) || it->distance > (avg_dist * match_range.second)){
+        it = tempMatch.erase(it);
+      }
+      else {
+        ++it;
+      }
+    }
+    boundingBox.kptMatches = tempMatch;
 }
 
 
@@ -145,91 +171,170 @@ void clusterKptMatchesWithROI(BoundingBox &boundingBox, std::vector<cv::KeyPoint
 void computeTTCCamera(std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPoint> &kptsCurr, 
                       std::vector<cv::DMatch> kptMatches, double frameRate, double &TTC, cv::Mat *visImg)
 {
-    // ...
+  // compute distance ratios between all matched keypoints
+  vector<double> distRatios; // stores the distance ratios for all keypoints between curr. and prev. frame
+  for (auto it1 = kptMatches.begin(); it1 != kptMatches.end() - 1; ++it1)
+  { // outer kpt. loop
+
+    // get current keypoint and its matched partner in the prev. frame
+    cv::KeyPoint kpOuterCurr = kptsCurr.at(it1->trainIdx);
+    cv::KeyPoint kpOuterPrev = kptsPrev.at(it1->queryIdx);
+
+    for (auto it2 = kptMatches.begin() + 1; it2 != kptMatches.end(); ++it2)
+    { // inner kpt.-loop
+
+      double minDist = 100.0; // min. required distance
+
+      // get next keypoint and its matched partner in the prev. frame
+      cv::KeyPoint kpInnerCurr = kptsCurr.at(it2->trainIdx);
+      cv::KeyPoint kpInnerPrev = kptsPrev.at(it2->queryIdx);
+
+      // compute distances and distance ratios
+      double distCurr = cv::norm(kpOuterCurr.pt - kpInnerCurr.pt);
+      double distPrev = cv::norm(kpOuterPrev.pt - kpInnerPrev.pt);
+
+      if (distPrev > std::numeric_limits<double>::epsilon() && distCurr >= minDist)
+      { // avoid division by zero
+
+        double distRatio = distCurr / distPrev;
+        distRatios.push_back(distRatio);
+      }
+    } // eof inner loop over all matched kpts
+  }     // eof outer loop over all matched kpts
+
+  // only continue if list of distance ratios is not empty
+  if (distRatios.size() == 0)
+  {
+    TTC = NAN;
+    return;
+  }
+
+  // compute camera-based TTC from distance ratios
+  double meanDistRatio = std::accumulate(distRatios.begin(), distRatios.end(), 0.0) / distRatios.size();
+
+
+
+  double medianDistRatio;
+  // STUDENT TASK (replacement for meanDistRatio)
+  if(distRatios.size() % 2 == 1){
+    medianDistRatio = distRatios[distRatios.size() / 2 + 1];
+  } else {
+    medianDistRatio = (distRatios[distRatios.size() / 2] + distRatios[distRatios.size() / 2 + 1]) / 2;
+  }
+
+  double dT = 1 / frameRate;
+  TTC = -dT / (1 - medianDistRatio);
 }
 
 
 void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
                      std::vector<LidarPoint> &lidarPointsCurr, double frameRate, double &TTC)
 {
-    // ...
+  // auxiliary variables
+  //double laneWidth = 4.0; // assumed width of the ego lane
+  double group_dist_allowance = 0.02; // 2 cm
+  int group = 3;                      // need 3 points within 2 cm of each other
+  double min_distance = 1.4;          // if point is less than this discard
+
+  // find closest distance to Lidar points within ego lane
+  double minXPrev = 1e9, minXCurr = 1e9;
+  std::vector<double> prevX;
+  std::vector<double> currX;
+
+  // put lidar points in a list and find closest
+  for (auto it = lidarPointsPrev.begin(); it != lidarPointsPrev.end(); ++it)
+  {
+    if(it->x < min_distance) continue;
+    minXPrev = minXPrev > it->x ? it->x : minXPrev;
+    prevX.push_back(it->x);
+  }
+
+  for (auto it = lidarPointsCurr.begin(); it != lidarPointsCurr.end(); ++it)
+  {
+    if(it->x < min_distance) continue;
+    minXCurr = minXCurr > it->x ? it->x : minXCurr;
+    currX.push_back(it->x);
+  }
+
+  // sort the list
+  std::sort(prevX.begin(), prevX.end());
+  std::sort(currX.begin(), currX.end());
+
+
+  // iterate the list find the closest point with at least 3 points in a 2 cm range
+  if(prevX.size() > group){
+    for(auto it = prevX.begin(); it != (prevX.end() - group); ++it){
+      double max = -1e9;
+      double min = 1e9;
+      for(int i = 0; i < group; i++){
+        max = max < *(it + i) ? *(it + i): max;
+        min = min > *(it + i) ? *(it + i) : min;
+      }
+      if((max - min) < group_dist_allowance){
+        minXPrev = min;
+        break;
+      }
+    }
+  }
+  if(currX.size() > group){
+    for(auto it = currX.begin(); it != currX.end() - group; ++it){
+      double max = -1e9;
+      double min = 1e9;
+      for(int i = 0; i < group; i++){
+        max = max < *(it + i) ? *(it + i) : max;
+        min = min > *(it + i) ? *(it + i) : min;
+      }
+      if((max - min) < group_dist_allowance){
+        minXCurr = min;
+        break;
+      }
+    }
+  }
+  // compute TTC from both measurements
+  double dT = 1 / frameRate;
+  TTC = minXCurr * dT / (minXPrev - minXCurr);
 }
 
+// helper function
+std::pair<int, int> get_max(const std::map<int, int> &m) {
+  if(!m.empty()){
+    int max_id = (m.begin())->first;
+    for (const auto& it : m) {
+      if(it.second > m.at(max_id)) max_id = it.first;
+    }
+    auto max = m.find(max_id);
+    return *max;
+  }
+  else{
+    return std::pair<int, int>(-1,-1);
+  }
 
+}
 void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bbBestMatches, DataFrame &prevFrame, DataFrame &currFrame, cv::Mat &img)
 {
-
-  // TODO: MAKE A CHECK FOR IF KEYPOINT IN WITHIN 2 BOUNDING BOXES
-  std::multimap<int, int> bb_matches;
-  std::vector<cv::KeyPoint> c_pts;
-  std::vector<cv::KeyPoint> p_pts;
-  std::vector<cv::DMatch> in_matches;
-  std::vector<cv::DMatch> match_copy = matches;
-  // for all matches
-  for(auto it = match_copy.begin(); it != match_copy.end(); ++it) {
-    bool match_placed = false;
-    int curr_index = it->queryIdx;
-    int prev_index = it->trainIdx;
-    auto curr_frame_bbs = currFrame.boundingBoxes;
-    auto prev_frame_bbs = prevFrame.boundingBoxes;
-    cout << "SIZE" << bb_matches.size() << endl;
-    cout << "SIZE CPTS" << c_pts.size() << endl;
-    for(auto curr_bb_it = curr_frame_bbs.begin(); !match_placed && curr_bb_it != curr_frame_bbs.end(); ++curr_bb_it){
-      for(auto prev_bb_it = prev_frame_bbs.begin(); !match_placed && prev_bb_it != prev_frame_bbs.end(); ++prev_bb_it){
-        if(curr_bb_it->roi.contains(currFrame.keypoints[curr_index].pt) && prev_bb_it->roi.contains(prevFrame.keypoints[prev_index].pt) && !match_placed){
-          bb_matches.insert(std::pair<int, int>(curr_bb_it->boxID, prev_bb_it->boxID));
-          match_placed = true;
-          in_matches.push_back((*it));
-          c_pts.push_back(currFrame.keypoints[curr_index]);
-          p_pts.push_back(prevFrame.keypoints[prev_index]);
+  for (const auto& prevBox : prevFrame.boundingBoxes) {
+    std::map<int, int> m;
+    for (const auto& currBox : currFrame.boundingBoxes) {
+      for (const auto &match : matches) {
+        const auto &prevKeyPoint = prevFrame.keypoints[match.queryIdx].pt;
+        if (prevBox.roi.contains(prevKeyPoint)) {
+          const auto &currKeyPoint = currFrame.keypoints[match.trainIdx].pt;
+          if (currBox.roi.contains(currKeyPoint)) {
+            if(0 == m.count(currBox.boxID)) {
+              m[currBox.boxID] = 1;
+            }
+            else {
+              m[currBox.boxID]++;
+            }
+          }
         }
-      }
-    }
-    //if(!match_placed) match_copy.erase(it);
-    // store box ids in multimap
-  }
-  std::set<int> keys;
-  for(auto matches_it = bb_matches.begin(); matches_it != bb_matches.end(); ++matches_it){
-    keys.insert(matches_it->first);
-  }
-  int num_boxes = keys.size();
+      } // eof iterating all matches
+    } // eof iterating all current bounding boxes
 
-  for(auto key_it = keys.begin(); num_boxes > 0 && key_it != keys.end(); ++key_it){
-    std::pair <std::multimap<int,int>::iterator, std::multimap<int,int>::iterator> ret;
-    ret = bb_matches.equal_range(*key_it);
-    int max = -1;
-    int max_id = -1;
-    for(auto key_range = ret.first; key_range != ret.second; ++key_range){
-      std::vector<int> counts(keys.size(), 0);
-      for(int i = 0; i < counts.size(); i++){
-        if(key_range->second == i) counts[i]++;
-        if(counts[i] > max) {
-          max = counts[i];
-          max_id = i;
-        }
-      }
-    }
-    bbBestMatches.insert(std::pair<int, int>(*key_it, max_id));
-  }
-    std::cout << "======== best matches =======" << std::endl;
-    for(auto best_it = bbBestMatches.begin(); best_it != bbBestMatches.end(); ++best_it){
-      std::cout << "id1: " << best_it->first << "\tid2: " << best_it->second  << endl;
-    }
-  //}
-  bool bVis = true;
-  if(bVis) {
+    auto max=get_max(m);
 
-    cv::Mat visImg = img.clone();
-    cv::Mat c_img = currFrame.cameraImg.clone();
-    cv::Mat p_img = prevFrame.cameraImg.clone();
+    bbBestMatches[prevBox.boxID] = max.first;
+    std::cout << "ID Matching: " << prevBox.boxID << "=>" << max.first << std::endl;
 
-    cv::drawKeypoints(c_img, c_pts, c_img);
-    cv::drawKeypoints(p_img, p_pts, p_img);
-    //cv::drawMatches(p_img, p_pts, c_img, c_pts, in_matches, visImg, cv::Scalar::all(-1), cv::Scalar::all(-1), vector<char>(), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-
-    string windowName = "keypoints";
-    cv::namedWindow( windowName, 2 );
-    cv::imshow( windowName, c_img );
-    cv::waitKey(0); // wait for key to be pressed
-  }
+  } // eof iterating all previous bounding boxes
 }
