@@ -30,9 +30,9 @@ int main(int argc, const char *argv[])
     // data location
     string dataPath = "../";
     bool log_data = false;
-
+    ofstream tables;
     if(log_data) {
-      ofstream tables;
+
       tables.open("tables.csv", std::ios_base::app);
       tables << "imgIdx,detectorType,keypoints#,descriptorType,matches#,ttcLidar,ttcCamera\n";
     }
@@ -283,7 +283,7 @@ int main(int argc, const char *argv[])
                     //// EOF STUDENT ASSIGNMENT
                     if(log_data) tables << ttcCamera << "\n";
 
-                    bVis = false;
+                    bVis = true;
                     if (bVis)
                     {
                         cv::Mat visImg = (dataBuffer.end() - 1)->cameraImg.clone();
