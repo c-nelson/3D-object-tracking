@@ -29,6 +29,13 @@ int main(int argc, const char *argv[])
 
     // data location
     string dataPath = "../";
+    bool log_data = false;
+
+    if(log_data) {
+      ofstream tables;
+      tables.open("tables.csv", std::ios_base::app);
+      tables << "imgIdx,detectorType,keypoints#,descriptorType,matches#,ttcLidar,ttcCamera\n";
+    }
 
     // camera
     string imgBasePath = dataPath + "images/";
@@ -79,6 +86,7 @@ int main(int argc, const char *argv[])
     for (size_t imgIndex = 0; imgIndex <= imgEndIndex - imgStartIndex; imgIndex+=imgStepWidth)
     {
         /* LOAD IMAGE INTO BUFFER */
+        if(log_data) tables << imgStartIndex + imgIndex << ",";
 
         // assemble filenames for current index
         ostringstream imgNumber;
@@ -150,7 +158,8 @@ int main(int argc, const char *argv[])
 
         // extract 2D keypoints from current image
         vector<cv::KeyPoint> keypoints; // create empty feature list for current image
-        string detectorType = "FAST";
+        string detectorType = "BRISK";
+        if(log_data) tables << detectorType << ",";
 
         if (detectorType.compare("SHITOMASI") == 0)
         {
@@ -178,6 +187,7 @@ int main(int argc, const char *argv[])
             cv::KeyPointsFilter::retainBest(keypoints, maxKeypoints);
             cout << " NOTE: Keypoints have been limited!" << endl;
         }
+        if(log_data) tables << keypoints.size() << ",";
 
         // push keypoints and descriptor for current frame to end of data buffer
         (dataBuffer.end() - 1)->keypoints = keypoints;
@@ -189,6 +199,7 @@ int main(int argc, const char *argv[])
 
         cv::Mat descriptors;
         string descriptorType = "BRIEF"; // BRISK, BRIEF, ORB, FREAK, AKAZE, SIFT
+        if(log_data) tables << descriptorType << ",";
         descKeypoints((dataBuffer.end() - 1)->keypoints, (dataBuffer.end() - 1)->cameraImg, descriptors, descriptorType);
 
         // push descriptors for current frame to end of data buffer
@@ -196,7 +207,7 @@ int main(int argc, const char *argv[])
 
         cout << "#6 : EXTRACT DESCRIPTORS done" << endl;
 
-
+        if (log_data && dataBuffer.size() <= 1) tables << ",,\n";
         if (dataBuffer.size() > 1) // wait until at least two images have been processed
         {
 
@@ -210,7 +221,7 @@ int main(int argc, const char *argv[])
             matchDescriptors((dataBuffer.end() - 2)->keypoints, (dataBuffer.end() - 1)->keypoints,
                              (dataBuffer.end() - 2)->descriptors, (dataBuffer.end() - 1)->descriptors,
                              matches, descriptorType, matcherType, selectorType);
-
+            if(log_data) tables << matches.size() << ",";
             // store matches in current data frame
             (dataBuffer.end() - 1)->kptMatches = matches;
 
@@ -260,6 +271,7 @@ int main(int argc, const char *argv[])
                     //// TASK FP.2 -> compute time-to-collision based on Lidar data (implement -> computeTTCLidar)
                     double ttcLidar; 
                     computeTTCLidar(prevBB->lidarPoints, currBB->lidarPoints, sensorFrameRate, ttcLidar);
+                    if(log_data) tables << ttcLidar<< ",";
                     //// EOF STUDENT ASSIGNMENT
 
                     //// STUDENT ASSIGNMENT
@@ -269,8 +281,9 @@ int main(int argc, const char *argv[])
                     clusterKptMatchesWithROI(*currBB, (dataBuffer.end() - 2)->keypoints, (dataBuffer.end() - 1)->keypoints, (dataBuffer.end() - 1)->kptMatches);                    
                     computeTTCCamera((dataBuffer.end() - 2)->keypoints, (dataBuffer.end() - 1)->keypoints, currBB->kptMatches, sensorFrameRate, ttcCamera);
                     //// EOF STUDENT ASSIGNMENT
+                    if(log_data) tables << ttcCamera << "\n";
 
-                    bVis = true;
+                    bVis = false;
                     if (bVis)
                     {
                         cv::Mat visImg = (dataBuffer.end() - 1)->cameraImg.clone();
@@ -295,6 +308,6 @@ int main(int argc, const char *argv[])
         }
 
     } // eof loop over all images
-
+    if(log_data) tables.close();
     return 0;
 }

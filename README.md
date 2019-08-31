@@ -1,35 +1,87 @@
-# SFND 3D Object Tracking
+#FP.1 Match 3D Objects
+This was accomplished by nested looping through both previous and current
+bounding boxes and finding matches that were contained in a given pair of
+boxes and counting them. Then the matches with the most matches are said
+to be the best matches.
 
-Welcome to the final project of the camera course. By completing all the lessons, you now have a solid understanding of keypoint detectors, descriptors, and methods to match them between successive images. Also, you know how to detect objects in an image using the YOLO deep-learning framework. And finally, you know how to associate regions in a camera image with Lidar points in 3D space. Let's take a look at our program schematic to see what we already have accomplished and what's still missing.
+#FP.2 Compute Lidar-based TTC
+Both the previous and current frame lidar points are pushed into sorted
+vectors. Then, the closest point, of which meets the condition that 3
+other points are within 2 cm, is used to compute the TTC.
 
-<img src="images/course_code_structure.png" width="779" height="414" />
+###*Resubmission*
 
-In this final project, you will implement the missing parts in the schematic. To do this, you will complete four major tasks: 
-1. First, you will develop a way to match 3D objects over time by using keypoint correspondences. 
-2. Second, you will compute the TTC based on Lidar measurements. 
-3. You will then proceed to do the same using the camera, which requires to first associate keypoint matches to regions of interest and then to compute the TTC based on those matches. 
-4. And lastly, you will conduct various tests with the framework. Your goal is to identify the most suitable detector/descriptor combination for TTC estimation and also to search for problems that can lead to faulty measurements by the camera or Lidar sensor. In the last course of this Nanodegree, you will learn about the Kalman filter, which is a great way to combine the two independent TTC measurements into an improved version which is much more reliable than a single sensor alone can be. But before we think about such things, let us focus on your final project in the camera course. 
+I have implemented the reviewers suggestions with regards to accounting
+for a larger amount of points for the TTC computation. This solution
+works a lot more consistently. I think in a real world program, this
+method would need some revision to take into account something like
+a pickup truck - where points would be measured from the tailgate and
+cab.
 
-## Dependencies for Running Locally
-* cmake >= 2.8
-  * All OSes: [click here for installation instructions](https://cmake.org/install/)
-* make >= 4.1 (Linux, Mac), 3.81 (Windows)
-  * Linux: make is installed by default on most Linux distros
-  * Mac: [install Xcode command line tools to get make](https://developer.apple.com/xcode/features/)
-  * Windows: [Click here for installation instructions](http://gnuwin32.sourceforge.net/packages/make.htm)
-* Git LFS
-  * Weight files are handled using [LFS](https://git-lfs.github.com/)
-* OpenCV >= 4.1
-  * This must be compiled from source using the `-D OPENCV_ENABLE_NONFREE=ON` cmake flag for testing the SIFT and SURF detectors.
-  * The OpenCV 4.1.0 source code can be found [here](https://github.com/opencv/opencv/tree/4.1.0)
-* gcc/g++ >= 5.4
-  * Linux: gcc / g++ is installed by default on most Linux distros
-  * Mac: same deal as make - [install Xcode command line tools](https://developer.apple.com/xcode/features/)
-  * Windows: recommend using [MinGW](http://www.mingw.org/)
+#FP.3 Associate Keypoint Correspondences with Bounding Boxes
+Key point matches within the bounding box and the range of 80% and 120%
+of the mean match distances are kept as bounding box matches and keypoints.
 
-## Basic Build Instructions
+###*Resubmission*
 
-1. Clone this repo.
-2. Make a build directory in the top level project directory: `mkdir build && cd build`
-3. Compile: `cmake .. && make`
-4. Run it: `./3D_object_tracking`.
+I have taken the reviewers advice again in very much simplifying my code.
+I have much better results now. I was under the impression that this
+function was to fill the bb.keypoints attribute as well.
+
+#FP.4 Compute Camera-based TTC
+Distances and TTC are computed based on the pinhole phenomenon.
+
+###*Resubmission*
+
+I foolishly forgot to sort the ratios, the reviewers code helped me figure this
+out and get much better results. ~~With both the reviewer and myself's code
+one TTC computation is -inf, is this acceptable?~~ After implementing the much
+simpler roi clustering function that the reviewer suggests - this is fixed.
+
+#FP.5 Performance Evaluation 1
+When the proceeding vehicle's distance is further in the
+current frame from the previous - I believe the calculation
+of TTC is incorrect and too high.
+
+###*Resubmission*
+
+It seems, as can be seen in the screenshots below, that in frames 3-5 the
+vehicle is getting closer but the TTC is increasing. This may be because
+of noise points throwing off the minimum distance median calculation. A
+rogue point can be seen in frame 5's top down view.
+
+###Frame 3
+![alt text](./images/3.png "Frame 3")
+
+###Frame 4
+![alt text](./images/4.png "Frame 4")
+
+###Frame 5
+![alt text](./images/5.png "Frame 5")
+
+
+#FP.6 Performance Evaluation 2
+When the number of keypoints for an image are low
+the TTC estimation is faulty. Low match confidence can lead to
+severe differences from the lidar TTC.
+
+###*Resubmission*
+
+Below is a plot of all TTC calculations given different pairs of detectors
+descriptors. Errors and unreasonable results over 20 seconds are removed.
+![alt text](./images/ttc.png "TTC")
+
+Below is the average TTC estimation of all pairs for each frame. This is what
+we will use as the 'truth' in out analysis.
+![alt text](./images/avg-ttc.png "Avg TTC")
+
+The graph below represents each pair of detector and descriptor's offset from
+our 'truth' TTC (the average TTC).
+![alt text](./images/avg-sep.png "Avg Seperation")
+
+
+In the graph below each pair of detectors and descriptors are represented with
+their average closeness to the 'truth' and the number of errors or fault data
+recorded. We can see that FAST/BRIEF, AKAZE/ORB, and AKAZE/AKAZE performed the 
+best in this measurement of accuracy.
+![alt text](./images/closeness-to-avg.png "Overall Performance")

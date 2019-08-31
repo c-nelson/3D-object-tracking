@@ -137,38 +137,14 @@ void show3DObjects(std::vector<BoundingBox> &boundingBoxes, cv::Size worldSize, 
 // associate a given bounding box with the keypoints it contains
 void clusterKptMatchesWithROI(BoundingBox &boundingBox, std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPoint> &kptsCurr, std::vector<cv::DMatch> &kptMatches)
 {
-    std::vector<cv::KeyPoint> tempKpt;
-    for(const auto &kpt : kptsCurr){
-      if(boundingBox.roi.contains(kpt.pt)) tempKpt.push_back(kpt);
+    for(cv::DMatch match : kptMatches){
+      if(boundingBox.roi.contains(kptsCurr[match.trainIdx].pt))
+        boundingBox.kptMatches.push_back(match);
     }
-    boundingBox.keypoints = tempKpt;
-    std::pair<double, double> match_range(0.8, 1.2);
-    double avg_dist = 0;
-    double total_dist = 0;
-    std::vector<cv::DMatch> tempMatch;
-    for (const auto &match : kptMatches) {
-      const auto &currKeyPoint = kptsCurr[match.trainIdx].pt;
-      if (boundingBox.roi.contains(currKeyPoint)) {
-        tempMatch.push_back(match);
-        total_dist += match.distance;
-      }
-    }
-    avg_dist = total_dist / tempMatch.size();
-    auto it = tempMatch.begin();
-    while (it != tempMatch.end()){
-      if(it->distance < (avg_dist * match_range.first) || it->distance > (avg_dist * match_range.second)){
-        it = tempMatch.erase(it);
-      }
-      else {
-        ++it;
-      }
-    }
-    boundingBox.kptMatches = tempMatch;
 }
 
-
 // Compute time-to-collision (TTC) based on keypoint correspondences in successive images
-void computeTTCCamera(std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPoint> &kptsCurr, 
+void computeTTCCamera(std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPoint> &kptsCurr,
                       std::vector<cv::DMatch> kptMatches, double frameRate, double &TTC, cv::Mat *visImg)
 {
   // compute distance ratios between all matched keypoints
@@ -205,94 +181,30 @@ void computeTTCCamera(std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPo
   // only continue if list of distance ratios is not empty
   if (distRatios.size() == 0)
   {
-    TTC = NAN;
+    TTC = std::numeric_limits<double>::quiet_NaN();
     return;
   }
 
-  // compute camera-based TTC from distance ratios
-  double meanDistRatio = std::accumulate(distRatios.begin(), distRatios.end(), 0.0) / distRatios.size();
-
-
-
   double medianDistRatio;
-  // STUDENT TASK (replacement for meanDistRatio)
-  if(distRatios.size() % 2 == 1){
-    medianDistRatio = distRatios[distRatios.size() / 2 + 1];
-  } else {
-    medianDistRatio = (distRatios[distRatios.size() / 2] + distRatios[distRatios.size() / 2 + 1]) / 2;
-  }
-
+  std::sort(distRatios.begin(), distRatios.end());
+  medianDistRatio = distRatios[distRatios.size() / 2];
   double dT = 1 / frameRate;
   TTC = -dT / (1 - medianDistRatio);
 }
 
+void sortLidar(std::vector<LidarPoint> &points){
+  std::sort(points.begin(), points.end(), [](LidarPoint a, LidarPoint b) { return a.x < b.x;});
+}
 
 void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
                      std::vector<LidarPoint> &lidarPointsCurr, double frameRate, double &TTC)
 {
-  // auxiliary variables
-  //double laneWidth = 4.0; // assumed width of the ego lane
-  double group_dist_allowance = 0.02; // 2 cm
-  int group = 3;                      // need 3 points within 2 cm of each other
-  double min_distance = 1.4;          // if point is less than this discard
-
-  // find closest distance to Lidar points within ego lane
-  double minXPrev = 1e9, minXCurr = 1e9;
-  std::vector<double> prevX;
-  std::vector<double> currX;
-
-  // put lidar points in a list and find closest
-  for (auto it = lidarPointsPrev.begin(); it != lidarPointsPrev.end(); ++it)
-  {
-    if(it->x < min_distance) continue;
-    minXPrev = minXPrev > it->x ? it->x : minXPrev;
-    prevX.push_back(it->x);
-  }
-
-  for (auto it = lidarPointsCurr.begin(); it != lidarPointsCurr.end(); ++it)
-  {
-    if(it->x < min_distance) continue;
-    minXCurr = minXCurr > it->x ? it->x : minXCurr;
-    currX.push_back(it->x);
-  }
-
-  // sort the list
-  std::sort(prevX.begin(), prevX.end());
-  std::sort(currX.begin(), currX.end());
-
-
-  // iterate the list find the closest point with at least 3 points in a 2 cm range
-  if(prevX.size() > group){
-    for(auto it = prevX.begin(); it != (prevX.end() - group); ++it){
-      double max = -1e9;
-      double min = 1e9;
-      for(int i = 0; i < group; i++){
-        max = max < *(it + i) ? *(it + i): max;
-        min = min > *(it + i) ? *(it + i) : min;
-      }
-      if((max - min) < group_dist_allowance){
-        minXPrev = min;
-        break;
-      }
-    }
-  }
-  if(currX.size() > group){
-    for(auto it = currX.begin(); it != currX.end() - group; ++it){
-      double max = -1e9;
-      double min = 1e9;
-      for(int i = 0; i < group; i++){
-        max = max < *(it + i) ? *(it + i) : max;
-        min = min > *(it + i) ? *(it + i) : min;
-      }
-      if((max - min) < group_dist_allowance){
-        minXCurr = min;
-        break;
-      }
-    }
-  }
-  // compute TTC from both measurements
+  sortLidar(lidarPointsCurr);
+  sortLidar(lidarPointsPrev);
+  double medianXCurr = lidarPointsCurr[lidarPointsCurr.size()/2].x;
+  double medianXPrev = lidarPointsPrev[lidarPointsPrev.size()/2].x;
   double dT = 1 / frameRate;
-  TTC = minXCurr * dT / (minXPrev - minXCurr);
+  TTC = medianXCurr * dT / (medianXPrev - medianXCurr);
 }
 
 // helper function

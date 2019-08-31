@@ -54,26 +54,6 @@ opencv2/core.hpp
 dataStructures.h
 /Users/christiannelson/dev/Udacity/sensor-fusion/SFND_3D_Object_Tracking-master/src/dataStructures.h
 
-/Users/christiannelson/dev/Udacity/sensor-fusion/SFND_3D_Object_Tracking-master/src/camFusion_Student.cpp
-iostream
--
-algorithm
--
-numeric
--
-set
--
-opencv2/highgui/highgui.hpp
--
-opencv2/imgproc/imgproc.hpp
--
-opencv2/features2d.hpp
--
-camFusion.hpp
-/Users/christiannelson/dev/Udacity/sensor-fusion/SFND_3D_Object_Tracking-master/src/camFusion.hpp
-dataStructures.h
-/Users/christiannelson/dev/Udacity/sensor-fusion/SFND_3D_Object_Tracking-master/src/dataStructures.h
-
 /Users/christiannelson/dev/Udacity/sensor-fusion/SFND_3D_Object_Tracking-master/src/dataStructures.h
 vector
 -

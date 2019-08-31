@@ -1,0 +1,2 @@
+When the number of keypoints for an image are low
+the TTC estimation is faulty.

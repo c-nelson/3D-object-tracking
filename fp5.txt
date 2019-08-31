@@ -1,0 +1,3 @@
+When the proceeding vehicle's distance is further in the
+current frame from the previous - I believe the calculation
+of TTC is incorrect and too high.
